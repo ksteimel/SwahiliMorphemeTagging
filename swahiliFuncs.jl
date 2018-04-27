@@ -1,4 +1,6 @@
-mutable struct swahiliTag
+#import Base.==
+using AutoHashEquals
+@auto_hash_equals mutable struct swahiliTag
     word::String
     pos::String
     msd::String
@@ -13,6 +15,45 @@ mutable struct swahiliTag
     syntax::String
     lemma::String
 end
+
+"""
+Method for measuring equality between swahili tag objects
+"""
+#function ==(tag1::swahiliTag, tag2::swahiliTag)
+#    if tag1.word == tag2.word &&
+#        tag1.pos == tag2.pos &&
+#        tag1.msd == tag2.msd &&
+#        tag1.behind == tag2.behind &&
+#        tag1.ahead == tag2.ahead &&
+#        tag1.cls == tag2.ahead &&
+#        tag1.tam == tag2.tam &&
+#        tag1.subj == tag2.subj &&
+#        tag1.obj == tag2.obj &&
+#        tag1.rel == tag2.rel &&
+#        tag1.gloss == tag2.gloss &&
+#        tag1.syntax == tag2.syntax &&
+#        tag1.lemma == tag2.lemma
+#        return true
+#    else
+#        return false
+#    end
+#end
+#function ==(tagList1::Array{swahiliTag, 1}, tagList2::Array{swahiliTag, 1})
+#    if length(tagList1) != length(tagList2)
+#        return false
+#    else
+#        for tagI = 1:length(tagList1)
+#            if tagList1[tagI] != tagList2[tagI]
+#                return false
+#            end
+#        end
+#        return true
+#    end
+#end
+#function isequal(tag1::swahiliTag, tag2::swahiliTag)
+#   return tag1 == tag2
+#end
+
 #Outer constructor for swahiliTag to provide default arguments
 swahiliTag(word,
             pos,
@@ -517,11 +558,22 @@ function flattenSents(sents)
     #Define a new swahili query object 
     output = swahiliQuery("-")
     words = []
-    for sent in sents
+    feats = []
+    print()
+    for sentI = 1:length(sents)
+        sent = sents[sentI]
+        if sentI % 100 == 0
+            print("\r" * string(sentI))
+        end
         for word in sent
             push!(words, word)
+            append!(feats, keys(getFeatureValues(word)))
         end
     end
+    output.words = words
+    output.uniques = unique(feats)
+    print()
+    return output
 end
 
 function extractSents(filepath)
@@ -539,6 +591,7 @@ function extractSents(filepath)
     println()
     return sents
 end
+
 #::Array{Array{swahiliTag, 1},1}
 function convertSentsToHmm(sents)
     mutatedSents = @sync @parallel vcat for sent in sents
@@ -653,4 +706,29 @@ end
 function writePkl(data, path::String)
     out = open(path, "w")
     pickle.dump(data, out)    
+end
+
+function split_datasets(ratio::T, iterables...) where {T<:AbstractFloat}
+    length_iter = length(iterables[1])
+    n_train_samples = Integer(ceil(ratio * length_iter))
+    #Check that iterables all match in length
+    for iterable in iterables
+        if length(iterable) != length_iter
+            jl_error("Iterables differ in length")
+            jl_error("Target Length: " * str(length_iter))
+            jl_error("Current Iterable Length: " * str(length(iterable)))
+        end
+    end
+    srand(32109)
+    indexes = rand(1:length_iter, n_train_samples)
+    skipped_indexes = setdiff(1:length_iter, indexes)
+    train_iterables = []
+    test_iterables = []
+    for iterable in iterables
+        sampled_iter = [iterable[ind] for ind in indexes]
+        push!(train_iterables, sampled_iter)
+        sampled_iter = [iterable[ind] for ind in skipped_indexes]
+        push!(test_iterables, sampled_iter)
+    end
+    return train_iterables, test_iterables
 end
