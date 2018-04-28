@@ -715,7 +715,7 @@ end
 =#
 function writeData(data, path::String)
     println("Writing data")
-    mmwrite(path * ".mm", data["data"])
+    mmwrite(path * ".mtx", data["data"])
     println("Writing pickle")
     writePkl(Dict(key=>data[key] for key in keys(data) if key != "data"), path * ".pkl")
 end
