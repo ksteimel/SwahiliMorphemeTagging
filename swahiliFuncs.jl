@@ -293,15 +293,15 @@ function setVerbTags!(tag::swahiliTag)
         end
         haystackPieces = split(tag.msd)
         for piece in haystackPieces
-            index = search("SUB-PREF=.*", piece)
+            index = search(piece, r"SUB-PREF=.*")
             if index != 0:-1
                 tag.subj = piece[index]
             end
-            index = search("OBJ-PREF=.*", piece)
+            index = search(piece, r"OBJ-PREF=.*")
             if index != 0:-1
                 tag.obj = piece[index]
             end
-            index = search("REL-PREF=.*", piece)
+            index = search(piece, r"REL-PREF=.*")
             if index != 0:-1
                 tag.rel = piece[index]
             end
