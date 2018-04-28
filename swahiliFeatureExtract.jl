@@ -1,6 +1,8 @@
 using JSON
 using PyCall
+using MatrixMarket
 @pyimport pickle
+@pyimport scipy.sparse as py_sparse
 @everywhere include("swahiliFuncs.jl")
 function main(ARGS)
     if length(ARGS) < 1
@@ -14,9 +16,7 @@ function main(ARGS)
     else
         println("Running swahili feature extraction script")
         trainFile = ARGS[1]
-        testFile = ARGS[2]
         println(trainFile)
-        println(testFile)
         sents = unique(extractSents(trainFile))
         trainSents, testSents = split_datasets(0.7, sents)
         trainSents = trainSents[1]
@@ -33,17 +33,20 @@ function main(ARGS)
         
         #fillQuery!(trainQuery)
         #writePkl(trainQuery, "test.pkl")
+        println("Creating matrix for training data")
         trainData = createMatrix(trainQuery, trainQuery.uniques)  
+        println("Making matrix sparse")
         trainData["data"] = sparseMatrix(trainData["data"])
-        #writeData(trainData, "outputData.csv")
-        writePkl(trainData, "outputTrain.pkl")
+        println("Writing pickle")
+        writeData(trainData, "outputTrain")
+        #writePkl(trainData, "outputTrain.pkl")
 
-        #testQuery = swahiliQuery(testFile)
         #fillQuery!(testQuery)
+        println("Creating matrix for test data")
         testData = createMatrix(testQuery, trainQuery.uniques)
         testData["data"] = sparseMatrix(testData["data"])
-        writePkl(trainData, "outputTest.pkl")
-        #writeData(testData, "outputTest.csv")
+        #writePkl(trainData, "outputTest.pkl")
+        writeData(testData, "outputTest")
     end
 end
 main(ARGS)
