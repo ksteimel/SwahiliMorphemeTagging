@@ -611,8 +611,8 @@ end
 This function changes the array of sparse vectors I was using before into a sparse matrix
 """
 function sparseMatrix(data)
-    rowIndexes = []
-    colIndexes = []
+    rowIndexes::Array{Int64, 1} = []
+    colIndexes::Array{Int64, 1} = []
     dataVals = []
     for rowI = 1:length(data)
         vecIndexes = data[rowI].nzind
@@ -623,7 +623,7 @@ function sparseMatrix(data)
             push!(dataVals, val)
         end
     end
-    res = sparse(rowIndexes, colIndexes, dataVals)
+    res = SparseMatrixCSC{Int64, Int64}(sparse(rowIndexes, colIndexes, dataVals))
     return res
 end
 #function writeCONLL(query:: )
@@ -641,12 +641,13 @@ function createMatrix(query::swahiliQuery, cols::Array)
 
     println("Current Progress")
     dataArray = []
+    println()
     for wordI = 1:length(query.words)
         if wordI % 100 == 0
-            println(string(wordI))
+            print("\r" * string(wordI))
         end
         featsForExample = getFeatureValues(words[wordI])
-        @inbounds tempRow = SparseArrays.sparsevec([feat in keys(featsForExample) ? featsForExample[feat] : 0 for feat in cols])
+        @inbounds tempRow = SparseArrays.sparsevec([feat in keys(featsForExample) ? Int64(featsForExample[feat]) : Int64(0) for feat in cols])
         #[tempRow]
         push!(dataArray, tempRow)
     end
@@ -686,7 +687,7 @@ function sample(n_samples, iterables...)
     return new_iterables
 end
 
-function writeData(data::Dict, path::String, key::String="pos")
+#=function writeData(data::Dict, path::String, key::String="pos")
     println("Writing labels")
     outLabels = open(path * ".pkl", "w")
     pickle.dump(Dict(key => data[key] for key in keys(data)), outLabels) #if key != "data"), outLabels)
@@ -703,9 +704,25 @@ function writeData(data::Dict, path::String, key::String="pos")
     close(outData)
 end
 
+
+function writeData(data, path::String)
+    println("Beginning to write out data")
+    newData = py_sparse.csc_matrix(data["data"])
+    data["data"] = newData
+    println("Data has been changed into python sparse matrix")
+    writePkl(data, path)
+end
+=#
+function writeData(data, path::String)
+    println("Writing data")
+    mmwrite(path * ".mm", data["data"])
+    println("Writing pickle")
+    writePkl(Dict(key=>data[key] for key in keys(data) if key != "data"), path * ".pkl")
+end
 function writePkl(data, path::String)
     out = open(path, "w")
     pickle.dump(data, out)    
+    close(out)
 end
 
 function split_datasets(ratio::T, iterables...) where {T<:AbstractFloat}
