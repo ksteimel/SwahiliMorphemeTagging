@@ -4,7 +4,8 @@ import time
 import pickle
 import json
 import numpy as np
-import scipy.io.mmread as mmread
+from scipy.io import mmread
+import scipy.sparse as sparse
 from sklearn import svm
 from sklearn.grid_search import GridSearchCV
 from sklearn.metrics import classification_report
@@ -12,15 +13,20 @@ from sklearn.metrics import accuracy_score, make_scorer
 from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.decomposition import SparsePCA
-from sklearn.utils import resample
+from sklearn.utils import shuffle
 from sklearn.feature_selection import SelectKBest, chi2
 import sys
+
 
 def splitNounsVerbs(inData, posVector):
     #input data should be dictionary with a list or array for each value
     # Think of this like two select statements
-    nounData = {kii:[inData[kii][i] for i in range(len(posVector)) if posVector[i] == 'N'] for kii in set(inData.keys()) - set(['features'])}
-    verbData = {kii:[inData[kii][i] for i in range(len(posVector)) if posVector[i] == 'V'] for kii in set(inData.keys()) - set(['features'])}
+    nounIndexes = [i for i in range(len(posVector)) if posVector[i] == 'N']
+    verbIndexes = [i for i in range(len(posVector)) if posVector[i] == 'V']
+    nounData = {kii:[inData[kii][i] for i in nounIndexes] for kii in set(inData.keys()) - set(['data','features'])}
+    verbData = {kii:[inData[kii][i] for i in verbIndexes] for kii in set(inData.keys()) - set(['data','features'])}
+    nounData["data"] = inData["data"][nounIndexes]
+    verbData["data"] = inData["data"][verbIndexes]
     return nounData, verbData
 
 def main():
@@ -37,7 +43,8 @@ def main():
 
     #These parameter options will be used throughout this code
     Cs = [0.1, 1, 10] # [0.001, 0.01, 0.1, 1, 10]
-    nFeatures = [1000, 2000, 3000, 4000, 5000, 6000, 10000]
+    nFeatures = ["all", 1000, 2000, 3000, 4000, 5000, 6000, 10000]
+    losses = ['hinge','squared_hinge']
     param_grid = {'classify__C':Cs, 'reduce_dim__k':nFeatures} #params have a new name in pipelines that uses the piece of the pipeline that they correspond to
 
     #TRAINING PHASE
@@ -51,13 +58,15 @@ def main():
         exit()
     
     
+    trainData = []
+    trainData = sparse.csr_matrix(mmread(sys.argv[1] + ".mtx"))
+    train["data"] = trainData 
+    train["data"], train["pos"], train["tam"], train["rel"],train["subj"], train["obj"], train["classes"] = shuffle(train["data"], train["pos"], train["tam"], train["rel"],train["subj"], train["obj"], train["classes"], n_samples=200000, random_state=92830)
+    trainData = train["data"]
     #Get the pos tags pulled out so we can split the classification task 
     trainPOS = list(train['pos'])
     features = train['features']
-    trainData = []
-    trainData = mmread(sys.argv[1] + ".mtx")
- 
-    pipeline = Pipeline([('reduce_dim', SelectKBest(chi2)), ('classify', svm.SVC(kernel='linear'))])
+    pipeline = Pipeline([('reduce_dim', SelectKBest(chi2)), ('classify', svm.LinearSVC())])
 
     #training data
     trainPosCls = GridSearchCV(pipeline, param_grid, cv=5, n_jobs=numProcs, verbose=4)
@@ -84,6 +93,7 @@ def main():
     verbClassifiers = {}
     for target in ['tam','subj','obj','rel']:
         tempCls = GridSearchCV(pipeline, param_grid, cv=5, n_jobs=numProcs, verbose=4, pre_dispatch=numProcs)
+        print(set(trainVerbs[target]))
         tempCls.fit(trainVerbs['data'],trainVerbs[target])
         print("\nBest parameters found on training set for verb " + target + " classification: \n")
         print(tempCls.best_params_)
@@ -92,13 +102,13 @@ def main():
     ##TESTING PHASE
     test = []
     try:
-        test = pickle.load(open(sys.argv[2], 'rb'))
+        test = pickle.load(open(sys.argv[2] + ".pkl", 'rb'))
     except IOError:
         print("Unable to open " + sys.argv[2])
         exit()
 
-    testData = mmread(sys.argv[2] + ".mtx")
-
+    testData = sparse.csr_matrix(mmread(sys.argv[2] + ".mtx"))
+    test["data"] = testData
     # Now that we've built a model for determining pos, we will apply it to the training data
     testPosPred = trainPosCls.predict(testData)
     print("Classification results for part-of-speech on test")

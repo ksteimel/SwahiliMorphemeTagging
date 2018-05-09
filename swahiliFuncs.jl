@@ -627,7 +627,7 @@ function sparseMatrix(data)
     return res
 end
 #function writeCONLL(query:: )
-function createMatrix(query::swahiliQuery, cols::Array)
+#=function createMatrix(query::swahiliQuery, cols::Array)
     println("There are " * string(length(cols)) * " features being extracted")
     println("There are " * string(length(query.words)) * " words to gather features for")
     words = query.words
@@ -660,8 +660,48 @@ function createMatrix(query::swahiliQuery, cols::Array)
                 "subj"=>subj,
                 "tam"=>tam,
                 "rel"=>rel)
-end
+end=#
+function createMatrix(query::swahiliQuery, cols::Array)
+    println("There are " * string(length(cols)) * " features being extracted")
+    println("There are " * string(length(query.words)) * " words to gather features for")
+    words = query.words
+    @inbounds classes = [word.cls for word in words]
+    @inbounds pos = [word.pos for word in words]
+    @inbounds msd = [word.msd for word in words]
+    @inbounds obj = [word.obj for word in words]
+    @inbounds subj = [word.subj for word in words]
+    @inbounds tam = [word.tam for word in words]
+    @inbounds rel = [word.rel for word in words]
 
+    println("Current Progress")
+    rowIndexes = []
+    colIndexes = []
+    vals = []
+    println()
+    for wordI = 1:length(query.words)
+        if wordI % 100 == 0
+            print("\r" * string(wordI))
+        end
+        featsForExample = getFeatureValues(words[wordI])
+        tempRow = [(featI, Int64(featsForExample[cols[featI]])) for featI in eachindex(cols) if cols[featI] in keys(featsForExample)]
+        tempColIndexes = [first(x) for x in tempRow]
+        tempVals = [last(x) for x in tempRow]
+        tempRowIndexes = fill(wordI, length(tempVals))
+        append!(rowIndexes, tempRowIndexes)
+        append!(colIndexes, tempColIndexes)
+        append!(vals, tempVals)
+    end
+    dataArray = SparseMatrixCSC{Int64, Int64}(sparse(rowIndexes, colIndexes, vals))
+    return Dict("classes"=>classes, 
+                "features"=>cols,
+                "data"=>dataArray,
+                "pos"=>pos, 
+                "msd"=>msd, 
+                "obj"=>obj,
+                "subj"=>subj,
+                "tam"=>tam,
+                "rel"=>rel)
+end
 function sampleMatrix(n_samples, matrix)
     sampledTrain = Dict(key => sample(n_samples, matrix[key]) for key in keys(trainData))
     return sampledTrain
