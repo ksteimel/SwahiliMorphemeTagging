@@ -15,8 +15,18 @@ from sklearn.pipeline import Pipeline
 from sklearn.decomposition import SparsePCA
 from sklearn.utils import shuffle
 from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.preprocessing import LabelBinarizer
 import sys
+from scipy.sparse import hstack
 
+def incorporateLastDecision(existingMatrix, labelVector):
+    #get the sparse binarized format for the labels
+    print("Shape of existing matrix" + str(existingMatrix.shape))
+    binarizer = LabelBinarizer(sparse_output=True)
+    labelMatrix = binarizer.fit_transform(labelVector)
+    newMatrix = hstack([labelMatrix, newMatrix])
+    print("Shape of modified matrix" + str(existingMatrix.shape))
+    return newMatrix 
 
 def splitNounsVerbs(inData, posVector):
     #input data should be dictionary with a list or array for each value
@@ -43,7 +53,7 @@ def main():
 
     #These parameter options will be used throughout this code
     Cs = [0.1, 1, 10] # [0.001, 0.01, 0.1, 1, 10]
-    nFeatures = ["all", 1000, 2000, 3000, 4000, 5000, 6000, 10000]
+    nFeatures = ["all"]#, 1000, 2000, 3000, 4000, 5000, 6000, 10000]
     losses = ['hinge','squared_hinge']
     param_grid = {'classify__C':Cs, 'reduce_dim__k':nFeatures} #params have a new name in pipelines that uses the piece of the pipeline that they correspond to
 
@@ -61,7 +71,7 @@ def main():
     trainData = []
     trainData = sparse.csr_matrix(mmread(sys.argv[1] + ".mtx"))
     train["data"] = trainData 
-    train["data"], train["pos"], train["tam"], train["rel"],train["subj"], train["obj"], train["classes"] = shuffle(train["data"], train["pos"], train["tam"], train["rel"],train["subj"], train["obj"], train["classes"], n_samples=200000, random_state=92830)
+    #train["data"], train["pos"], train["tam"], train["rel"],train["subj"], train["obj"], train["classes"] = shuffle(train["data"], train["pos"], train["tam"], train["rel"],train["subj"], train["obj"], train["classes"], n_samples=200000, random_state=92830)
     trainData = train["data"]
     #Get the pos tags pulled out so we can split the classification task 
     trainPOS = list(train['pos'])
@@ -83,22 +93,7 @@ def main():
     for params, mean_score, scores in trainPosCls.grid_scores_:
         print("%0.4f (+/-%0.04f) for %r" % (mean_score, scores.std() * 2, params))
 
-    #Create model for nouns
-    trainNouns, trainVerbs = splitNounsVerbs(train, trainPOS)
-    nounCls = GridSearchCV(pipeline, param_grid, cv=5, n_jobs=numProcs, verbose=4, pre_dispatch=numProcs)
-    nounCls.fit(trainNouns['data'],trainNouns['classes']) 
-    print("\nBest parameters found on training set for noun class classification: \n")
-    print(nounCls.best_params_)
  
-    verbClassifiers = {}
-    for target in ['tam','subj','obj','rel']:
-        tempCls = GridSearchCV(pipeline, param_grid, cv=5, n_jobs=numProcs, verbose=4, pre_dispatch=numProcs)
-        print(set(trainVerbs[target]))
-        tempCls.fit(trainVerbs['data'],trainVerbs[target])
-        print("\nBest parameters found on training set for verb " + target + " classification: \n")
-        print(tempCls.best_params_)
-        verbClassifiers[target] = tempCls
-
     ##TESTING PHASE
     test = []
     try:
@@ -109,22 +104,56 @@ def main():
 
     testData = sparse.csr_matrix(mmread(sys.argv[2] + ".mtx"))
     test["data"] = testData
-    # Now that we've built a model for determining pos, we will apply it to the training data
+
+    testNouns, testVerbs = splitNounsVerbs(test, testPosPred)
+
+    verbClassifiers = {}
+    paths = itertools.permutations(['tam','subj','obj','rel'])
+    for path in paths:
+        trainVerbDup = trainVerbs["data"].copy()
+        testVerbDup = testVerbs["data"].copy()
+        for target in path:
+            print("Going through path " + str(path))
+            print("Getting results for " + str(target))
+            tempCls = GridSearchCV(pipeline, param_grid, cv=5, n_jobs=numProcs, verbose=1, pre_dispatch=numProcs)
+            print(set(trainVerbs[target]))
+            tempCls.fit(trainVerbDup,trainVerbs[target])
+            print("\nBest parameters found on training set for verb " + target + " classification: \n")
+            print(tempCls.best_params_)
+            #Have to do testing while we're doing training now because there's so many different combinations
+            #it's difficult to store these
+            tempPred = tempCls.predict(testVerbDup)
+            print("Classification results for " + target + " on test")
+            print(classification_report(testVerbs[target],tempPred), digits=8)
+            print()
+            #tack on correct classes to the training data
+            trainVerbDup = incorporateLastDecision(trainVerbDup, trainVerbs[target])
+            #tack on predicted classes to the test data
+            testVerbDup = incorporateLastDecision(testVerbDup, testVerbs[target])
+
+            
+    #Now that we've built a model for determining pos, we will apply it to the training data
     testPosPred = trainPosCls.predict(testData)
     print("Classification results for part-of-speech on test")
     print(classification_report(test['pos'], testPosPred))    
 
-    #split the training data by the predicted pos values
-    testNouns, testVerbs = splitNounsVerbs(test, testPosPred)
-
+    #Create model for nouns
+    trainNouns, trainVerbs = splitNounsVerbs(train, trainPOS)
+    nounCls = GridSearchCV(pipeline, param_grid, cv=5, n_jobs=numProcs, verbose=4, pre_dispatch=numProcs)
+    nounCls.fit(trainNouns['data'],trainNouns['classes']) 
+    print("\nBest parameters found on training set for noun class classification: \n")
+    print(nounCls.best_params_)
+    
     testNounClassPred = nounCls.predict(testNouns['data'])
     print("Classification results for noun class on test")
     print(classification_report(testNouns['classes'], testNounClassPred))
+    
+    #for target in ['tam','subj','obj','rel']:
+    #    tempPred = verbClassifiers[target].predict(testVerbs['data'])
+    #    print("Classification results for " + target + " on test")
+    #    print(classification_report(testVerbs[target], tempPred))
 
-    for target in ['tam','subj','obj','rel']:
-        tempPred = verbClassifiers[target].predict(testVerbs['data'])
-        print("Classification results for " + target + " on test")
-        print(classification_report(testVerbs[target], tempPred))
+
 
 if __name__ == "__main__":
     main()
